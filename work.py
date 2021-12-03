@@ -9,6 +9,8 @@ import math
 omega_e = 7.2921151467e-5 # 地球自转速度
 PI = 3.1415926535
 GM = 3.986005e14
+LIGHTSPEED = 299792458
+F = -4.442807633e-10
 
 class Ephemeris(): # 星历类
     def __init__(self): # 各类参数
@@ -62,6 +64,15 @@ class Ephemeris(): # 星历类
             self.rA = self.sqrt_a * self.sqrt_a # 计算轨道半径
             self.AlreadyLoadData = 1 # 数据已读取
 
+class ObserveData(): # 观测数据
+    def __init__(self) -> None:
+        self.T = 5 # 温度
+        self.P = 1013 # 气压
+        self.Pva = 6.0 # 水汽压
+        self.pseudo_range = [] # 伪距观测值
+        self.observet = 0 # 观测时间
+        self.ionutca = [] # 电离层参数
+
 class Orbit_and_Satellite():
     def __init__(self): # 卫星和轨道参数
         self.satex = 5140678.179333044 # 缺省卫星位置
@@ -71,7 +82,8 @@ class Orbit_and_Satellite():
         self.e = 0.006164086284 # 缺省轨道偏心率
         self.rA = 5153.69580*5153.69580 # 缺省轨道半径
     
-    def CalculateParameter(self, ephemeris): # 计算轨道参数和卫星位置
+    def CalculateParameter(self): # 计算轨道参数和卫星位置
+        ephemeris = self.ephemeris
         if not ephemeris.AlreadyLoadData: # 如果没有读取过数据则无需计算，采用默认数据
             pass
         else:
@@ -103,6 +115,25 @@ class Orbit_and_Satellite():
             self.L = L
             self.rA = ephemeris.rA
             self.e = ephemeris.e
+            self.E = E
+    
+    def ClockError(self, t):
+        ephemeris = self.ephemeris
+        return ephemeris.a0 + ephemeris.a1 * (t - ephemeris.t_oc) + ephemeris.a2 * (t - ephemeris.t_oc) ** 2 - ephemeris.T_GD
+    
+    def RelativeError(self):
+        ephemeris = self.ephemeris
+        return F * ephemeris.e + ephemeris.a * self.E
+    
+    def IonosphericKlobucharError(self):
+        ephemeris = self.ephemeris
+        return F * ephemeris.e + ephemeris.a * self.E
+    
+    def processError(self, t): # 误差处理
+        dclk = self.ClockError(t) * LIGHTSPEED # 时钟误差
+        drclk = self.RelativeError() * LIGHTSPEED # 相对论误差
+        dion = self.IonosphericKlobucharError() * LIGHTSPEED # 电离层误差
+        dtrop = self.TroposphericHopfieldEooro() # 对流层误差
 
     def drawSatellite(self): # 在卫星轨道平面内绘制卫星
         glPushMatrix() # 记录当前世界坐标系信息
@@ -259,7 +290,8 @@ class SatelliteSystem():
         glPopMatrix() # 恢复世界坐标系
 
     def drawOrbit_and_Satellite(self):
-        self.orbit_and_satellite.CalculateParameter(self.ephemeris) # 计算参数
+        self.orbit_and_satellite.ephemeris = self.ephemeris
+        self.orbit_and_satellite.CalculateParameter() # 计算参数
         glPushMatrix() # 记录当前世界坐标系
         # 旋转世界坐标系，使XOY平面与轨道平面重合
         glRotatef(180*self.orbit_and_satellite.L/PI,0,0,1)
