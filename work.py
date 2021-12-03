@@ -11,6 +11,9 @@ PI = 3.1415926535
 GM = 3.986005e14
 LIGHTSPEED = 299792458
 F = -4.442807633e-10
+T = 5 # 温度
+P = 1013 # 气压
+Pva = 6.0 # 水汽压
 
 class Ephemeris(): # 星历类
     def __init__(self): # 各类参数
@@ -108,6 +111,8 @@ class Orbit_and_Satellite():
             I = I_t + ephemeris.C_ic * math.cos(2 * u) + ephemeris.C_is * math.sin(2 * u)
             L = ephemeris.omega + ephemeris.omega_dot * dt
 
+            self.E = E # 存储卫星高度角
+
             # 存储绘图所需参数
             self.satex = R * math.cos(U)
             self.satey = R * math.sin(U)
@@ -127,13 +132,83 @@ class Orbit_and_Satellite():
     
     def IonosphericKlobucharError(self):
         ephemeris = self.ephemeris
-        return F * ephemeris.e + ephemeris.a * self.E
+
+        # 计算测站点坐标
+
+        # 使用近似公式
+
+        a = 6378137 # 地球长轴
+        e = 8.1819190842622e-2 # 地球第一偏心率
+        b = (a ** 2 * (1 - e ** 2)) ** 0.5 # 短半轴
+        ep = ((a ** 2 - b ** 2) / b ** 2) ** 0.5 # 地球第二偏心率
+        p = (Ux ** 2 + Uy ** 2) ** 0.5
+        th = math.atan2(a * Uz, b * p)
+        lat = math.atan((Uz + ep ** 2 * b * math.sin(th) ** 3) / (p - e ** 2 * a * math.cos(th) ** 3)) # 纬度
+        lon = math.atan2(Uy, Ux) # 经度
+        N = a / (1 - e ** 2 * math.sin(lat) ** 2) ** 0.5 # 椭球面卯酉圈曲率半径
+        alt = p / math.cos(lat) - N # 高程
+
+        # 迭代法（似乎不必使用）
+
+        lonx = math.atan(Uy / Ux)
+        latx = math.atan(1 / (1 - e ** 2) * p)
+        latxm = -10000
+
+        while (abs(latx - latxm) > 1e-6):
+            latxm = latx
+            N = a / (1 - e ** 2 * math.sin(latx))
+            h = p / math.cos(latx) - N
+            latx = math.atan(1 / (1 - e ** 2 * N / (N + h) * p))
+
+        # 转换为测站坐标及求解卫星地面高度角与方位角
+
+        deltapos = np.array([Sx - Ux, Sy - Uy, Sz - Uz])
+        ENU = np.dot(np.array([[-math.sin(lon), math.cos(lon), 0],
+                               [-math.sin(lat) * math.cos(lon), -math.sin(lat) * math.sin(lon), math.cos(lat)],
+                               [math.cos(lat) * math.cos(lon), math.cos(lat) * math.sin(lon), math.sin(lat)]]), deltapos)
+        e, n, u = ENU
+        norm = (e ** 2 + n ** 2 + u ** 2) ** 0.5
+        el = math.asin(u / norm) # 卫星地面高度角
+        self.el = el
+        Azim = math.atan2(e, n) # 卫星方位角
+
+        # Klobuchar模型计算
+
+        # 第一阶段：穿刺点坐标计算
+
+        EA = 445 / (el * 180 / PI + 20) - 4 # 测站点与穿刺点的地心夹角
+        lat_n = lat * 180 / PI + EA * math.cos(Azim) # 穿刺点n处的地心纬度
+        if lat_n > 75:
+            lat_n = 75
+        elif lat_n < -75:
+            lat_n = -75
+        lon_n = lon * 180 / PI + EA * math.sin(Azim) / math.cos(lat_n * PI / 180) # 穿刺点n处的地心经度
+        lat_m = lat_n + 10.07 * math.cos((lon_n - 288.04) * PI / 180) # n的地磁纬度
+
+        # 第二阶段：模型表达式计算
+
+        A = ephemeris.a0 + ephemeris.a1 * (lat_m / 180) + ephemeris.a2 * (lat_m / 180) ** 2
+        P = ephemeris.b0 + ephemeris.b1 * (lat_m / 180) + ephemeris.b2 * (lat_m / 180) ** 2
+        local_t = (lon_n * 240 + ephemeris.observet % 86400 + 86400) % 86400
+        T_g = 5e-9 + A * math.cos(2 * PI / P * (local_t - 50400))
+        T_gm = T_g * (1 + (96 - el * 180 / PI) / 45)
+
+        return T_gm
+    
+    def TroposphericHopfieldError(self):
+        T_abs = T + 273.16
+        K_d = 1.55208e-4 * P * (40136 + 148.2 * T) / T_abs
+        K_w = -0.282 * Pva / T_abs + 8307 * Pva / T_abs / T_abs
+        Kd_prj = math.sin((self.el ** 2 + 0.001904) ** 0.5)
+        Kw_prj = math.sin((el ** 2 + 0.0006854) ** 0.5)
+
+        return K_d / Kd_prj + K_w / Kw_prj
     
     def processError(self, t): # 误差处理
         dclk = self.ClockError(t) * LIGHTSPEED # 时钟误差
         drclk = self.RelativeError() * LIGHTSPEED # 相对论误差
         dion = self.IonosphericKlobucharError() * LIGHTSPEED # 电离层误差
-        dtrop = self.TroposphericHopfieldEooro() # 对流层误差
+        dtrop = self.TroposphericHopfieldError() # 对流层误差
 
     def drawSatellite(self): # 在卫星轨道平面内绘制卫星
         glPushMatrix() # 记录当前世界坐标系信息
