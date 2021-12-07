@@ -200,7 +200,7 @@ class Orbit_and_Satellite():
         K_d = 1.55208e-4 * P * (40136 + 148.2 * T) / T_abs
         K_w = -0.282 * Pva / T_abs + 8307 * Pva / T_abs / T_abs
         Kd_prj = math.sin((self.el ** 2 + 0.001904) ** 0.5)
-        Kw_prj = math.sin((el ** 2 + 0.0006854) ** 0.5)
+        Kw_prj = math.sin((self.el ** 2 + 0.0006854) ** 0.5)
 
         return K_d / Kd_prj + K_w / Kw_prj
     
