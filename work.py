@@ -210,6 +210,8 @@ class Orbit_and_Satellite():
         dion = self.IonosphericKlobucharError() * LIGHTSPEED # 电离层误差
         dtrop = self.TroposphericHopfieldError() # 对流层误差
 
+        return dtrop + dion - dclk + drclk
+
     def drawSatellite(self): # 在卫星轨道平面内绘制卫星
         glPushMatrix() # 记录当前世界坐标系信息
         glTranslatef(self.satex/100000,self.satey/100000,0) # 将世界坐标系中心移到卫星所在位置
@@ -374,6 +376,29 @@ class SatelliteSystem():
         self.orbit_and_satellite.drawOrbit() # 绘制轨道
         self.orbit_and_satellite.drawSatellite() # 绘制卫星
         glPopMatrix() # 恢复世界坐标系
+    
+    def singlePositioning(self):
+        Ux, Uy, Uz, Ut = 0, 0, 0, ephemeris.observet
+        while 1:
+            A = []
+            L = []
+            for sate in self.satellites:
+                rho = ((Sx - Ux) ** 2 + (Sy - Uy) ** 2 + (Sz - Uz) ** 2) ** 0.5
+                lst = [-(Sx - Ux) / rho, -(Sy - Uy) / rho, -(Sz - Uz) / rho, -1]
+                A.append(lst)
+                L.append(sate.pseudo_range - rho + sate.processError(sate.ephemeris.observet))
+            A = np.array(A)
+            L = np.array(L)
+
+            V = np.dot(np.linalg.inv(np.dot(A.T, A)), np.dot(A.T, L))
+
+            Ux += V[0]
+            Uy += V[1]
+            Uz += V[2]
+            Ut += V[3]
+
+            if V[0] ** 2 + V[1] ** 2 + V[2] ** 2 + V[3] ** 2 < 1e-6:
+                break
 
 if __name__ == '__main__':
     SS = SatelliteSystem()
